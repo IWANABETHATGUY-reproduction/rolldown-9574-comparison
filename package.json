@@ -16,7 +16,7 @@
     "@rspack/cli": "latest",
     "@rspack/core": "latest",
     "esbuild": "latest",
-    "rolldown": "latest",
+    "rolldown": "https://pkg.pr.new/rolldown/rolldown@9574",
     "rollup": "latest"
   }
 }
