@@ -5,7 +5,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default {
   entry: './src/main.js',
-  // entry: './src2/main.js',
   output: {
     path: path.resolve(__dirname, 'dist/rspack'),
     filename: 'bundle.js',
