@@ -1,0 +1,22 @@
+{
+  "name": "bundler-comparison",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "build": "npm run build:rolldown && npm run build:rspack && npm run build:esbuild && npm run build:rollup",
+    "build:rolldown": "rolldown -c",
+    "build:rspack": "rspack build",
+    "build:esbuild": "esbuild src/main.js --bundle --format=esm --outfile=dist/esbuild/bundle.js",
+    "build:rollup": "rollup -c",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@rspack/cli": "latest",
+    "@rspack/core": "latest",
+    "esbuild": "latest",
+    "rolldown": "latest",
+    "rollup": "latest"
+  }
+}
