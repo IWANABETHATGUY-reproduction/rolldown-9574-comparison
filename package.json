@@ -5,9 +5,10 @@
   "type": "module",
   "sideEffects": false,
   "scripts": {
-    "build": "npm run build:rolldown && npm run build:rspack && npm run build:esbuild && npm run build:rollup",
+    "build": "npm run build:rolldown && npm run build:rspack && npm run build:webpack && npm run build:esbuild && npm run build:rollup",
     "build:rolldown": "rolldown -c",
     "build:rspack": "rspack build",
+    "build:webpack": "webpack",
     "build:esbuild": "esbuild src/main.js --bundle --format=esm --outfile=dist/esbuild/bundle.js",
     "build:rollup": "rollup -c",
     "clean": "rm -rf dist"
@@ -17,6 +18,8 @@
     "@rspack/core": "latest",
     "esbuild": "latest",
     "rolldown": "https://pkg.pr.new/rolldown/rolldown@9574",
-    "rollup": "latest"
+    "rollup": "latest",
+    "webpack": "^5.107.2",
+    "webpack-cli": "^7.0.2"
   }
 }
