@@ -1,3 +1,6 @@
-export * as api from './api.js';
+import * as api from './api.js';
 
-console.log(123);
+api.used = 1;
+// console.log(123);
+
+export { api }
