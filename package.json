@@ -9,7 +9,7 @@
     "build:rolldown": "rolldown -c",
     "build:rspack": "rspack build",
     "build:webpack": "webpack",
-    "build:esbuild": "esbuild src/main.js --bundle --format=esm --outfile=dist/esbuild/bundle.js",
+    "build:esbuild": "node esbuild.config.mjs",
     "build:rollup": "rollup -c",
     "clean": "rm -rf dist"
   },

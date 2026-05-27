@@ -3,36 +3,56 @@
 Reproduces the test case from
 [rolldown/rolldown#9574 (comment)](https://github.com/rolldown/rolldown/pull/9574#issuecomment-4552962462)
 to compare how **rolldown**, **rspack**, **webpack**, **esbuild**, and **rollup**
-handle `sideEffects: false` combined with `export default <namespace>`.
+handle `sideEffects: false` combined with two related forms of namespace
+re-export.
 
-## Test case
+## Test cases
+
+Two variants share the same `package.json` (`"sideEffects": false`) and
+`api.js`:
 
 ```js
-// package.json
-{ "sideEffects": false }
+// api.js
+export const used = 'used';
+export const unused = 'unused';
+```
 
+### `src/` — own-export form
+
+```js
 // src/main.js
 import api from './middle.js';
 console.log(api.used);
 
 // src/middle.js
 import * as api from './api.js';
-console.log(123);        // side-effect-shaped statement
-export default api;
-
-// src/api.js
-export const used = 'used';
-export const unused = 'unused';
+console.log(123);              // side-effect-shaped statement
+export default api;            // own export — captures namespace value
 ```
 
-The question: under `sideEffects: false`, does `console.log(123)` survive
-into the bundle?
+### `src2/` — pure re-export form
+
+```js
+// src2/main.js
+import { api } from './middle.js';
+console.log(api.used);
+
+// src2/middle.js
+export * as api from './api.js';   // pure re-export, no own binding
+console.log(123);                  // side-effect-shaped statement
+```
+
+The distinction is the heart of the PR comment: `export default api` is an
+**own export** (the module captures a value into a local `default` binding,
+which requires evaluating the module), whereas `export * as api from './api'`
+is a **pure re-export** (no local binding; the consumer reaches through to
+`api.js` directly without requiring `middle.js` to evaluate).
 
 ## Setup
 
 ```sh
 npm install
-npm run build           # runs all five
+npm run build           # runs all five against the active input
 npm run build:rolldown  # individual targets
 npm run build:rspack
 npm run build:webpack
@@ -40,125 +60,87 @@ npm run build:esbuild
 npm run build:rollup
 ```
 
+Each config (`rolldown.config.js`, `rollup.config.js`, `rspack.config.js`,
+`webpack.config.js`, `esbuild.config.mjs`) has two input lines — one
+active, one commented. Toggle the comments to switch between `src/` and
+`src2/`.
+
 rolldown is pinned to the PR #9574 preview build via
 `https://pkg.pr.new/rolldown/rolldown@9574`. The other four resolve to `latest`.
 
-## Result
+## Results
 
-| Bundler | `console.log(123)` | Notes |
-|---|---|---|
-| rolldown (PR #9574) | dropped | inlines `api.used` to `"used"` |
-| rspack (latest) | dropped | inlines `api.used` to `"used"` |
-| webpack 5 (latest) | **kept** | despite `sideEffects: false` |
-| esbuild (latest) | kept | namespace + `unused` also kept |
-| rollup (latest) | kept | `unused` tree-shaken, namespace frozen |
+### `src/` — own-export form (`export default api`)
 
-### rolldown (PR #9574 preview)
+| Bundler | `console.log(123)` |
+|---|---|
+| rolldown (PR #9574) | dropped |
+| rspack (latest) | dropped |
+| webpack 5 (latest) | **kept** |
+| esbuild (latest) | kept |
+| rollup (latest) | kept |
 
-```js
-console.log("used");
-```
+### `src2/` — pure re-export form (`export * as api from './api'`)
 
-### rspack
+| Bundler | `console.log(123)` |
+|---|---|
+| rolldown (PR #9574) | dropped |
+| rspack (latest) | dropped |
+| webpack 5 (latest) | dropped |
+| esbuild (latest) | kept |
+| rollup (latest) | dropped |
 
-```js
-console.log((/* inlined export .used */"used"));
-```
+### Cross-tab summary
 
-### webpack 5
-
-```js
-// NAMESPACE OBJECT: ./src/api.js
-var api_namespaceObject = {};
-__webpack_require__.r(api_namespaceObject);
-__webpack_require__.d(api_namespaceObject, {
-  unused: () => (unused),
-  used:   () => (used)
-});
-
-;// ./src/api.js
-const used = 'used';
-const unused = 'unused';
-
-;// ./src/middle.js
-console.log(123);
-const middle = api_namespaceObject;
-
-;// ./src/main.js
-console.log(middle.used);
-```
-
-### esbuild
-
-```js
-// src/api.js
-var api_exports = {};
-__export(api_exports, { unused: () => unused, used: () => used });
-var used = "used";
-var unused = "unused";
-
-// src/middle.js
-console.log(123);
-var middle_default = api_exports;
-
-// src/main.js
-console.log(middle_default.used);
-```
-
-### rollup
-
-```js
-const used = 'used';
-
-var api = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    used: used
-});
-
-console.log(123);
-
-console.log(api.used);
-```
+| Bundler | src (own export) | src2 (re-export) | Distinguishes the two forms? |
+|---|---|---|---|
+| rolldown PR #9574 | dropped | dropped | **no** |
+| rspack | dropped | dropped | **no** |
+| webpack 5 | kept | dropped | **yes** |
+| esbuild | kept | kept | no (conservative both ways) |
+| rollup | kept | dropped | **yes** |
 
 ## Interpretation
 
-The key finding: **webpack itself — the originator of the `sideEffects`
-convention — keeps `console.log(123)`.** Only **rspack** and the
-**rolldown PR #9574** preview drop it.
+The cross-tab matrix is the most revealing artifact in this repo. **Webpack
+and rollup distinguish the two syntactic forms**: they preserve
+`console.log(123)` when the default export is an own-export expression
+(`export default api`) but elide it when the export is a pure re-export
+(`export * as api from './api'`).
 
-That reframes the question. The `sideEffects: false` field is webpack's
-convention, and webpack's own behavior is the reference for what that
-convention means. Under webpack 5:
+That matches the ECMAScript semantics described in the PR comment:
 
-- A module whose default export is consumed is included.
-- Once included, its top-level statements run.
-- `sideEffects: false` gates *whether the whole module can be skipped when
-  nothing it exports is used*, not whether individual side-effect-shaped
-  statements may be deleted from an included module.
+- `export default <expr>` evaluates the expression at module load time and
+  binds the result to the module's local `default` slot. To observe the
+  default binding, the module body must execute. Therefore the
+  side-effect-shaped statement in the same body is reachable code under
+  any consumption of the default export.
+- `export * as ns from './source'` introduces no local binding in the
+  intermediate module. The consumer effectively reaches through to
+  `./source`. Under `sideEffects: false`, the intermediate module can be
+  skipped because none of its own exports are being read.
 
-By that yardstick:
+Against that yardstick:
 
-- **rollup, esbuild, webpack** are consistent: include `middle.js`, keep
-  `console.log(123)`.
-- **rspack** diverges from webpack: it applies a more aggressive statement-
-  level pruning that webpack does not perform on the same input.
-- **rolldown PR #9574** matches rspack's aggressive behavior, which is
-  also a divergence from webpack.
+- **rolldown PR #9574** and **rspack** collapse both forms into the
+  re-export shape. That's correct for `src2` but moves `src` in a direction
+  webpack does not — they go further than webpack on the very convention
+  webpack defines.
+- **webpack** and **rollup** track the distinction correctly.
+- **esbuild** is conservative on both: keeps the side effect in both
+  variants, which is safe but leaves the `src2` optimization on the table.
 
-So the question shifts from "is the aggressive optimization valid under the
-`sideEffects` contract?" to "is it intentional that rspack — and now
-rolldown — go further than webpack itself does?" If matching webpack
-semantics is the goal, this PR introduces a divergence in the same direction
-rspack already diverges.
+The PR comment was right that the rewiring of `LocalExport["default"].referenced`
+collapses two semantically distinct forms into one. The empirical effect
+shows up exactly where the comment predicted: in `src`, where rolldown PR
+diverges from webpack/rollup, while rspack already exhibits the same
+divergence. In `src2`, where the collapse happens to coincide with the
+correct answer, all four aggressive bundlers agree.
 
 ## Source of the concern
 
-The original PR comment raised a structural worry: the optimization rewires
-`LocalExport["default"].referenced` so that `export default ns` is treated
-like a re-export chain. Per the ECMAScript spec, `export default <expr>`
-is an **own export** of the module, while `export { ns as default }` is a
-**re-export** — they have different implications for module inclusion. The
-collapse is what enables the elimination of `middle.js`'s body here. Whether
-that's correct under `sideEffects: false` is debatable; what is not
-debatable is that webpack does not do it, so the PR moves rolldown away
-from webpack-compatible behavior rather than toward it.
+Per the comment, the optimization rewires `LocalExport["default"].referenced`
+so `export default ns` is treated like `export { ns as default }`. The
+`src` vs `src2` results confirm that the distinction matters: webpack and
+rollup observably behave differently across the two forms, but rolldown
+PR #9574 and rspack do not.
